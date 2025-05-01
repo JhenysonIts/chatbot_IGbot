@@ -1,56 +1,37 @@
 import streamlit as st
-from openai import OpenAI
+import requests
 
-# Show title and description.
-st.title("💬 Chatbot")
-st.write(
-    "This is a simple chatbot that uses OpenAI's GPT-3.5 model to generate responses. "
-    "To use this app, you need to provide an OpenAI API key, which you can get [here](https://platform.openai.com/account/api-keys). "
-    "You can also learn how to build this app step by step by [following our tutorial](https://docs.streamlit.io/develop/tutorials/llms/build-conversational-apps)."
-)
+# Configuração da página
+st.set_page_config(page_title="It’s Prompt Assistant", page_icon="🤖")
+st.title("🤖 Assistente de Conteúdo – It’s Prompt")
 
-# Ask user for their OpenAI API key via `st.text_input`.
-# Alternatively, you can store the API key in `./.streamlit/secrets.toml` and access it
-# via `st.secrets`, see https://docs.streamlit.io/develop/concepts/connections/secrets-management
-openai_api_key = st.text_input("OpenAI API Key", type="password")
-if not openai_api_key:
-    st.info("Please add your OpenAI API key to continue.", icon="🗝️")
-else:
+# Memória de histórico do chat
+if "history" not in st.session_state:
+    st.session_state.history = []
 
-    # Create an OpenAI client.
-    client = OpenAI(api_key=openai_api_key)
+# Campo de input do usuário
+user_input = st.chat_input("Escreva sua mensagem ou dúvida...")
 
-    # Create a session state variable to store the chat messages. This ensures that the
-    # messages persist across reruns.
-    if "messages" not in st.session_state:
-        st.session_state.messages = []
+# URL do webhook do seu n8n
+N8N_WEBHOOK_URL = "https://itsprompt.app.n8n.cloud/webhook-test/9edaecd3-2ac9-4979-a7fb-07cec91a0e58"  # Substitua aqui
 
-    # Display the existing chat messages via `st.chat_message`.
-    for message in st.session_state.messages:
-        with st.chat_message(message["role"]):
-            st.markdown(message["content"])
+# Envia mensagem para o webhook ao submeter
+if user_input:
+    st.session_state.history.append(("user", user_input))
 
-    # Create a chat input field to allow the user to enter a message. This will display
-    # automatically at the bottom of the page.
-    if prompt := st.chat_input("What is up?"):
+    try:
+        response = requests.post(N8N_WEBHOOK_URL, json={"message": user_input})
+        response.raise_for_status()
+        data = response.json()
+        ai_reply = data.get("response", "Desculpe, não consegui entender.")
+    except Exception as e:
+        ai_reply = f"[Erro ao conectar com n8n: {str(e)}]"
 
-        # Store and display the current prompt.
-        st.session_state.messages.append({"role": "user", "content": prompt})
-        with st.chat_message("user"):
-            st.markdown(prompt)
+    st.session_state.history.append(("ai", ai_reply))
 
-        # Generate a response using the OpenAI API.
-        stream = client.chat.completions.create(
-            model="gpt-3.5-turbo",
-            messages=[
-                {"role": m["role"], "content": m["content"]}
-                for m in st.session_state.messages
-            ],
-            stream=True,
-        )
-
-        # Stream the response to the chat using `st.write_stream`, then store it in 
-        # session state.
-        with st.chat_message("assistant"):
-            response = st.write_stream(stream)
-        st.session_state.messages.append({"role": "assistant", "content": response})
+# Exibe histórico de chat (mais recente no final)
+for role, text in reversed(st.session_state.history):
+    if role == "user":
+        st.chat_message("user").markdown(text)
+    else:
+        st.chat_message("assistant").markdown(text)
